@@ -189,7 +189,13 @@ class DynamicRevisionAgent:
             if concept not in session_data.get("concepts_learned", []):
                 session_data["concepts_learned"].append(concept)
 
-        prompt = self.prompts.get_basic_revision_prompt(session_data["topic"], content_text, user_query)
+        prompt = self.prompts.get_basic_revision_prompt(
+            session_data["topic"],
+            content_text,
+            user_query,
+            is_start=False,
+            last_bot_message=session_data.get("conversation_history", [])[-1].get("assistant_message", "") if session_data.get("conversation_history") else ""
+        )
         response = await self._generate_response_from_prompt(prompt, "You are an expert educational tutor continuing the lesson.")
 
         return {
@@ -217,7 +223,13 @@ class DynamicRevisionAgent:
         session_data["needs_remedial"] = (level == "poor")
 
         feedback = await self._generate_response_from_prompt(
-            self.prompts.get_feedback_progress_prompt(user_answers, session_data["topic"], "", level),
+            self.prompts.get_feedback_progress_prompt(
+                user_answers,
+                session_data["topic"],
+                "",
+                level,
+                last_bot_message=session_data.get("conversation_history", [])[-1].get("assistant_message", "") if session_data.get("conversation_history") else ""
+            ),
             "You are an expert tutor providing feedback."
         )
 
