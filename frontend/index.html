@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📚 Tattvik - Progressive Revision</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            display: flex;
+            max-width: 1400px;
+            margin: 0 auto;
+            min-height: 100vh;
+            background: white;
+            box-shadow: 0 0 30px rgba(0,0,0,0.1);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 350px;
+            background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
+            border-right: 1px solid #dee2e6;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .sidebar h2 {
+            color: #495057;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .topic-selector {
+            margin-bottom: 20px;
+        }
+
+        .topic-selector label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .topic-select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 14px;
+            background: white;
+            transition: border-color 0.3s;
+        }
+
+        .topic-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .topic-info {
+            background: #e3f2fd;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-size: 14px;
+            color: #1565c0;
+        }
+
+        .start-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .start-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .start-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .session-info {
+            margin-top: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .session-info h3 {
+            color: #495057;
+            margin-bottom: 15px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 10px 0;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .status-connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .end-btn {
+            width: 100%;
+            padding: 12px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+
+        .end-btn:hover {
+            background: #c82333;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-bottom: 1px solid #dee2e6;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            color: #495057;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .stage-info {
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
+        }
+
+        .metric {
+            background: #f8f9fa;
+            padding: 12px 20px;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 120px;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+
+        .welcome-screen {
+            padding: 40px;
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .welcome-screen h2 {
+            color: #495057;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 40px;
+        }
+
+        .feature-card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+        }
+
+        /* Chat Interface */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 160px);
+        }
+
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            max-width: 85%;
+        }
+
+        .message.user {
+            margin-left: auto;
+        }
+
+        .message.assistant {
+            margin-right: auto;
+        }
+
+        .message-content {
+            padding: 15px 20px;
+            border-radius: 18px;
+            line-height: 1.6;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border-bottom-right-radius: 6px;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-bottom-left-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .message-metadata {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 8px;
+            padding: 0 20px;
+        }
+
+        .sources {
+            margin-top: 10px;
+            padding: 10px 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .sources-title {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        .input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #dee2e6;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 12px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .message-input {
+            flex: 1;
+            padding: 15px 20px;
+            border: 2px solid #dee2e6;
+            border-radius: 25px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .message-input:focus {
+            border-color: #667eea;
+        }
+
+        .send-btn {
+            padding: 15px 25px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.2s;
+        }
+
+        .send-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .session-complete {
+            text-align: center;
+            padding: 40px;
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            border-radius: 12px;
+            margin: 20px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border-left: 4px solid #28a745;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-left: 4px solid #17a2b8;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                height: auto;
+            }
+
+            .stage-info {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .features {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <h2>📖 Available Topics</h2>
+            
+            <div class="topic-selector">
+                <label for="topicSelect">Choose a topic to revise:</label>
+                <select id="topicSelect" class="topic-select">
+                    <option value="">Loading topics...</option>
+                </select>
+                <div id="topicInfo" class="topic-info" style="display: none;"></div>
+            </div>
+
+            <button id="startBtn" class="start-btn" disabled>
+                🚀 Start New Revision Session
+            </button>
+
+            <div id="sessionInfo" class="session-info" style="display: none;">
+                <h3>📊 Current Session</h3>
+                <div id="sessionTopic"></div>
+                <div id="sessionProgress"></div>
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+                </div>
+                <div id="sessionStage"></div>
+                <div id="connectionStatus" class="connection-status status-disconnected">
+                    ❌ WebSocket Disconnected
+                </div>
+                <button id="endBtn" class="end-btn">🏁 End Session Early</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="header">
+                <h1 id="mainTitle">📚 Tattvik - Progressive Topic Revision</h1>
+                <div id="stageInfo" class="stage-info" style="display: none;">
+                    <div class="metric">
+                        <div id="conversationCount" class="metric-value">0</div>
+                        <div class="metric-label">Conversations</div>
+                    </div>
+                    <div class="metric">
+                        <div id="currentStage" class="metric-value">🌱</div>
+                        <div class="metric-label">Current Stage</div>
+                    </div>
+                    <div class="metric">
+                        <button id="endSessionBtn" class="end-btn" style="margin: 0;">🏁 End Session</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Welcome Screen -->
+            <div id="welcomeScreen" class="welcome-screen">
+                <h2>Welcome to Progressive Topic Revision! 🎓</h2>
+                <p style="font-size: 1.2em; color: #6c757d; margin-bottom: 30px;">
+                    Interactive learning designed to help you master topics step by step
+                </p>
+
+                <div class="features">
+                    <div class="feature-card">
+                        <h3>🌱 Introduction Stage</h3>
+                        <p>Learn fundamental concepts and definitions. Build understanding with simple explanations and answer basic comprehension questions.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🧠 Deep Learning Stage</h3>
+                        <p>Explore detailed concepts and relationships. Apply knowledge to real-world scenarios and tackle analytical questions.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🎯 Consolidation Stage</h3>
+                        <p>Synthesize and summarize key learnings. Test comprehensive understanding and prepare for assessments.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>💡 Interactive Features</h3>
+                        <p>Ask questions anytime, get personalized explanations, receive encouraging feedback, and track your progress.</p>
+                    </div>
+                </div>
+
+                <div class="alert alert-info" style="margin-top: 30px; text-align: left;">
+                    <strong>📚 Getting Started:</strong><br>
+                    1. Select a topic from the sidebar<br>
+                    2. Click "Start New Revision Session"<br>
+                    3. Follow the interactive guidance<br>
+                    4. Ask questions freely<br>
+                    5. Complete the full session for best results
+                </div>
+            </div>
+
+            <!-- Chat Interface -->
+            <div id="chatContainer" class="chat-container" style="display: none;">
+                <div id="messagesContainer" class="messages-container"></div>
+                
+                <div id="inputContainer" class="input-container">
+                    <div class="input-wrapper">
+                        <input 
+                            type="text" 
+                            id="messageInput" 
+                            class="message-input" 
+                            placeholder="Ask a question, continue learning, or type 'end session' to finish..."
+                            maxlength="500"
+                        >
+                        <button id="sendBtn" class="send-btn">Send</button>
+                    </div>
+                </div>
+
+                <div id="sessionCompleteMessage" class="session-complete" style="display: none;">
+                    <h2>🎉 Session Completed!</h2>
+                    <p>Great job on your learning journey!</p>
+                    <button id="newSessionBtn" class="start-btn" style="margin-top: 20px;">
+                        🚀 Start New Session
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE_URL = 'http://localhost:8000/api';
+        
+        // State
+        let sessionState = {
+            sessionId: null,
+            currentTopic: null,
+            studentId: 'student_001',
+            conversationCount: 0,
+            sessionComplete: false,
+            wsConnected: false,
+            wsClient: null,
+            topics: []
+        };
+
+        // DOM Elements
+        const elements = {
+            topicSelect: document.getElementById('topicSelect'),
+            topicInfo: document.getElementById('topicInfo'),
+            startBtn: document.getElementById('startBtn'),
+            sessionInfo: document.getElementById('sessionInfo'),
+            sessionTopic: document.getElementById('sessionTopic'),
+            sessionProgress: document.getElementById('sessionProgress'),
+            progressFill: document.getElementById('progressFill'),
+            sessionStage: document.getElementById('sessionStage'),
+            connectionStatus: document.getElementById('connectionStatus'),
+            endBtn: document.getElementById('endBtn'),
+            mainTitle: document.getElementById('mainTitle'),
+            stageInfo: document.getElementById('stageInfo'),
+            conversationCount: document.getElementById('conversationCount'),
+            currentStage: document.getElementById('currentStage'),
+            endSessionBtn: document.getElementById('endSessionBtn'),
+            welcomeScreen: document.getElementById('welcomeScreen'),
+            chatContainer: document.getElementById('chatContainer'),
+            messagesContainer: document.getElementById('messagesContainer'),
+            inputContainer: document.getElementById('inputContainer'),
+            messageInput: document.getElementById('messageInput'),
+            sendBtn: document.getElementById('sendBtn'),
+            sessionCompleteMessage: document.getElementById('sessionCompleteMessage'),
+            newSessionBtn: document.getElementById('newSessionBtn')
+        };
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchTopics();
+            setupEventListeners();
+        });
+
+        // Event Listeners
+        function setupEventListeners() {
+            elements.topicSelect.addEventListener('change', handleTopicSelection);
+            elements.startBtn.addEventListener('click', startNewSession);
+            elements.endBtn.addEventListener('click', endSession);
+            elements.endSessionBtn.addEventListener('click', () => handleUserInput('end session'));
+            elements.sendBtn.addEventListener('click', sendMessage);
+            elements.messageInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+            elements.newSessionBtn.addEventListener('click', resetForNewSession);
+        }
+
+        // Fetch available topics
+        async function fetchTopics() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/topics`);
+                if (!response.ok) throw new Error('Failed to fetch topics');
+                
+                const data = await response.json();
+                sessionState.topics = data.topics;
+                
+                // Populate topic selector
+                elements.topicSelect.innerHTML = '<option value="">Select a topic...</option>';
+                data.topics.forEach(topic => {
+                    const option = document.createElement('option');
+                    option.value = topic.topic;
+                    option.textContent = `${topic.topic} (${topic.chunk_count} sections)`;
+                    elements.topicSelect.appendChild(option);
+                });
+                
+            } catch (error) {
+                console.error('Error fetching topics:', error);
+                showAlert('Failed to fetch topics. Please check if the server is running.', 'error');
+            }
+        }
+
+        // Handle topic selection
+        function handleTopicSelection() {
+            const selectedTopic = elements.topicSelect.value;
+            if (selectedTopic) {
+                const topicData = sessionState.topics.find(t => t.topic === selectedTopic);
+                if (topicData) {
+                    elements.topicInfo.style.display = 'block';
+                    elements.topicInfo.textContent = `📋 ${topicData.description}`;
+                    elements.startBtn.disabled = false;
+                }
+            } else {
+                elements.topicInfo.style.display = 'none';
+                elements.startBtn.disabled = true;
+            }
+        }
+
+        // Start new session
+        async function startNewSession() {
+            const selectedTopic = elements.topicSelect.value;
+            if (!selectedTopic) {
+                showAlert('Please select a topic first', 'error');
+                return;
+            }
+
+            try {
+                // Reset state
+                sessionState.sessionId = generateUUID();
+                sessionState.currentTopic = selectedTopic;
+                sessionState.conversationCount = 0;
+                sessionState.sessionComplete = false;
+                
+                // Clear messages
+                elements.messagesContainer.innerHTML = '';
+                
+                // Show loading
+                elements.startBtn.innerHTML = '<span class="loading"></span> Starting...';
+                elements.startBtn.disabled = true;
+
+                // Call API
+                const response = await fetch(`${API_BASE_URL}/revision/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        topic: selectedTopic,
+                        student_id: sessionState.studentId,
+                        session_id: sessionState.sessionId,
+                        conversation_count: 0
+                    })
+                });
+
+                if (!response.ok) throw new Error('Failed to start session');
+                
+                const result = await response.json();
+                
+                // Add welcome message
+                addMessage('assistant', result.response, {
+                    conversation_count: result.conversation_count,
+                    sources: result.sources || [],
+                    is_session_complete: result.is_session_complete
+                });
+                
+                sessionState.conversationCount = result.conversation_count;
+                
+                // Update UI
+                updateSessionUI();
+                showChatInterface();
+                
+                // Connect WebSocket
+                connectWebSocket();
+                
+                showAlert(`✅ Started revision session for '${selectedTopic}'!`, 'success');
+                
+            } catch (error) {
+                console.error('Error starting session:', error);
+                showAlert('Failed to start session. Please try again.', 'error');
+            } finally {
+                elements.startBtn.innerHTML = '🚀 Start New Revision Session';
+                elements.startBtn.disabled = false;
+            }
+        }
+
+        // Connect WebSocket
+        function connectWebSocket() {
+            try {
+                const wsUrl = `ws://localhost:8000/api/ws/revision/${sessionState.sessionId}`;
+                console.log('Connecting to:', wsUrl);
+                
+                sessionState.wsClient = new WebSocket(wsUrl);
+                
+                sessionState.wsClient.onopen = function() {
+                    console.log('WebSocket connected');
+                    sessionState.wsConnected = true;
+                    updateConnectionStatus();
+                };
+                
+                sessionState.wsClient.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('Received message:', data);
+                        
+                        if (data.type === 'message') {
+                            addMessage('assistant', data.content, {
+                                conversation_count: data.conversation_count || 0,
+                                sources: data.sources || [],
+                                is_session_complete: data.is_session_complete || false,
+                                current_stage: data.current_stage
+                            });
+                            
+                            sessionState.conversationCount = data.conversation_count || sessionState.conversationCount;
+                            updateSessionUI();
+                            
+                            if (data.is_session_complete) {
+                                sessionState.sessionComplete = true;
+                                showSessionComplete();
+                            }
+                        } else if (data.type === 'session_complete') {
+                            sessionState.sessionComplete = true;
+                            showSessionComplete();
+                        }
+                        
+                    } catch (error) {
+                        console.error('Error processing message:', error);
+                    }
+                };
+                
+                sessionState.wsClient.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                    sessionState.wsConnected = false;
+                    updateConnectionStatus();
+                };
+                
+                sessionState.wsClient.onclose = function() {
+                    console.log('WebSocket closed');
+                    sessionState.wsConnected = false;
+                    updateConnectionStatus();
+                };
+                
+            } catch (error) {
+                console.error('Failed to connect WebSocket:', error);
+                showAlert('Failed to connect WebSocket. Please refresh the page.', 'error');
+            }
+        }
+
+        // Send message
+        function sendMessage() {
+            const message = elements.messageInput.value.trim();
+            if (!message || !sessionState.wsClient || sessionState.sessionComplete) return;
+            
+            // Add user message
+            addMessage('user', message);
+            
+            // Send via WebSocket
+            sessionState.wsClient.send(message);
+            
+            // Clear input
+            elements.messageInput.value = '';
+            
+            // Disable input temporarily
+            elements.sendBtn.disabled = true;
+            elements.messageInput.disabled = true;
+            
+            setTimeout(() => {
+                elements.sendBtn.disabled = false;
+                elements.messageInput.disabled = false;
+                elements.messageInput.focus();
+            }, 1000);
+        }
+
+        // Handle user input (for programmatic messages)
+        function handleUserInput(message) {
+            if (!sessionState.wsClient) return;
+            
+            addMessage('user', message);
+            sessionState.wsClient.send(message);
+        }
+
+        // Add message to chat
+        function addMessage(role, content, metadata = {}) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.textContent = content;
+            messageDiv.appendChild(contentDiv);
+            
+            if (role === 'assistant' && metadata) {
+                const metaDiv = document.createElement('div');
+                metaDiv.className = 'message-metadata';
+                
+                let metaText = '';
+                if (metadata.current_stage) {
+                    const stageNames = {
+                        introduction: '🌱 Introduction',
+                        deep_learning: '🧠 Deep Learning',
+                        consolidation: '🎯 Consolidation',
+                        revision: '📖 Revision',
+                        quiz: '🧠 Quiz',
+                        feedback: '📊 Feedback'
+                    };
+                    const stageName = stageNames[metadata.current_stage] || metadata.current_stage;
+                    metaText += `Stage: ${stageName}`;
+                }
+                
+                if (metadata.conversation_count) {
+                    metaText += ` | Interaction #${metadata.conversation_count}`;
+                }
+                
+                metaDiv.textContent = metaText;
+                messageDiv.appendChild(metaDiv);
+                
+                // Add sources if available
+                if (metadata.sources && metadata.sources.length > 0) {
+                    const sourcesDiv = document.createElement('div');
+                    sourcesDiv.className = 'sources';
+                    sourcesDiv.innerHTML = `
+                        <div class="sources-title">📚 Content Sources:</div>
+                        ${metadata.sources.map(source => `• Section ${source}`).join('<br>')}
+                    `;
+                    messageDiv.appendChild(sourcesDiv);
+                }
+            }
+            
+            elements.messagesContainer.appendChild(messageDiv);
+            elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+        }
+
+        // Update session UI
+        function updateSessionUI() {
+            if (!sessionState.sessionId) return;
+            
+            // Update sidebar session info
+            elements.sessionInfo.style.display = 'block';
+            elements.sessionTopic.innerHTML = `<strong>Topic:</strong> ${sessionState.currentTopic}`;
+            elements.sessionProgress.innerHTML = `<strong>Progress:</strong> ${sessionState.conversationCount} interactions`;
+            
+            // Update progress bar (assuming max 30 for visual purposes)
+            const progressPercent = Math.min((sessionState.conversationCount / 30) * 100, 100);
+            elements.progressFill.style.width = `${progressPercent}%`;
+            
+            // Update stage info in header
+            elements.stageInfo.style.display = 'flex';
+            elements.conversationCount.textContent = sessionState.conversationCount;
+            
+            // Update current stage
+            const count = sessionState.conversationCount;
+            let stageIcon = '🌱';
+            if (count > 5) stageIcon = '🧠';
+            if (count > 15) stageIcon = '🎯';
+            if (count > 25) stageIcon = '🚀';
+            if (count > 40) stageIcon = '🎓';
+            
+            elements.currentStage.textContent = stageIcon;
+        }
+
+        // Update connection status
+        function updateConnectionStatus() {
+            if (sessionState.wsConnected) {
+                elements.connectionStatus.className = 'connection-status status-connected';
+                elements.connectionStatus.innerHTML = '🔗 WebSocket Connected';
+            } else {
+                elements.connectionStatus.className = 'connection-status status-disconnected';
+                elements.connectionStatus.innerHTML = '❌ WebSocket Disconnected';
+            }
+        }
+
+        // Show chat interface
+        function showChatInterface() {
+            elements.welcomeScreen.style.display = 'none';
+            elements.chatContainer.style.display = 'flex';
+            elements.mainTitle.textContent = `📖 Revising: ${sessionState.currentTopic}`;
+            elements.messageInput.focus();
+        }
+
+        // Show session complete
+        function showSessionComplete() {
+            elements.inputContainer.style.display = 'none';
+            elements.sessionCompleteMessage.style.display = 'block';
+        }
+
+        // Reset for new session
+        function resetForNewSession() {
+            sessionState.sessionComplete = false;
+            elements.sessionCompleteMessage.style.display = 'none';
+            elements.inputContainer.style.display = 'block';
+            endSession();
+        }
+
+        // End session
+        function endSession() {
+            // Close WebSocket
+            if (sessionState.wsClient) {
+                sessionState.wsClient.close();
+                sessionState.wsClient = null;
+            }
+            
+            // Reset state
+            sessionState.sessionId = null;
+            sessionState.currentTopic = null;
+            sessionState.conversationCount = 0;
+            sessionState.sessionComplete = false;
+            sessionState.wsConnected = false;
+            
+            // Reset UI
+            elements.sessionInfo.style.display = 'none';
+            elements.stageInfo.style.display = 'none';
+            elements.chatContainer.style.display = 'none';
+            elements.welcomeScreen.style.display = 'block';
+            elements.sessionCompleteMessage.style.display = 'none';
+            elements.mainTitle.textContent = '📚 Tattvik - Progressive Topic Revision';
+            elements.messagesContainer.innerHTML = '';
+            elements.messageInput.value = '';
+            elements.inputContainer.style.display = 'block';
+            
+            // Reset topic selection
+            elements.topicSelect.value = '';
+            elements.topicInfo.style.display = 'none';
+            elements.startBtn.disabled = true;
+            
+            showAlert('Session ended. You can start a new revision session anytime!', 'success');
+        }
+
+        // Utility functions
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        function showAlert(message, type = 'info') {
+            // Create alert element
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            
+            // Insert at top of sidebar
+            const sidebar = document.querySelector('.sidebar');
+            sidebar.insertBefore(alertDiv, sidebar.firstChild);
+            
+            // Remove after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.parentNode.removeChild(alertDiv);
+                }
+            }, 5000);
+        }
+
+        // Auto-scroll messages
+        function scrollToBottom() {
+            elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            if (elements.messagesContainer.children.length > 0) {
+                scrollToBottom();
+            }
+        });
+
+        // Reconnect WebSocket if connection is lost
+        function reconnectWebSocket() {
+            if (sessionState.sessionId && !sessionState.wsConnected && !sessionState.sessionComplete) {
+                console.log('Attempting to reconnect WebSocket...');
+                connectWebSocket();
+            }
+        }
+
+        // Check connection status every 10 seconds
+        setInterval(() => {
+            if (sessionState.sessionId && !sessionState.sessionComplete) {
+                if (!sessionState.wsConnected) {
+                    reconnectWebSocket();
+                }
+            }
+        }, 10000);
+
+        // Handle page visibility change (reconnect when page becomes visible)
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden && sessionState.sessionId && !sessionState.wsConnected) {
+                setTimeout(reconnectWebSocket, 1000);
+            }
+        });
+
+        // Prevent accidental page reload during active session
+        window.addEventListener('beforeunload', function(e) {
+            if (sessionState.sessionId && !sessionState.sessionComplete) {
+                e.preventDefault();
+                e.returnValue = 'You have an active revision session. Are you sure you want to leave?';
+                return e.returnValue;
+            }
+        });
+
+        // Add keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Ctrl/Cmd + Enter to send message
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                if (elements.messageInput === document.activeElement) {
+                    sendMessage();
+                }
+            }
+            
+            // Escape to focus message input
+            if (e.key === 'Escape' && sessionState.sessionId && !sessionState.sessionComplete) {
+                elements.messageInput.focus();
+            }
+        });
+
+        // Add typing indicator functionality
+        let typingTimer;
+        function showTypingIndicator() {
+            const typingDiv = document.createElement('div');
+            typingDiv.id = 'typingIndicator';
+            typingDiv.className = 'message assistant';
+            typingDiv.innerHTML = `
+                <div class="message-content">
+                    <span class="loading"></span> Tattvik is typing...
+                </div>
+            `;
+            elements.messagesContainer.appendChild(typingDiv);
+            scrollToBottom();
+        }
+
+        function hideTypingIndicator() {
+            const typingDiv = document.getElementById('typingIndicator');
+            if (typingDiv) {
+                typingDiv.remove();
+            }
+        }
+
+        // Enhanced message handling with typing indicator
+        const originalAddMessage = addMessage;
+        addMessage = function(role, content, metadata = {}) {
+            if (role === 'user') {
+                showTypingIndicator();
+                // Hide typing indicator after a delay if no assistant message comes
+                clearTimeout(typingTimer);
+                typingTimer = setTimeout(hideTypingIndicator, 10000);
+            } else if (role === 'assistant') {
+                hideTypingIndicator();
+                clearTimeout(typingTimer);
+            }
+            
+            originalAddMessage(role, content, metadata);
+        };
+
+        // Add message formatting for better readability
+        function formatMessage(content) {
+            // Simple formatting for common patterns
+            return content
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // Bold
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')              // Italic
+                .replace(/`(.*?)`/g, '<code>$1</code>')            // Code
+                .replace(/\n/g, '<br>');                           // Line breaks
+        }
+
+        // Update the original addMessage to use formatting
+        function addMessage(role, content, metadata = {}) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            // Use innerHTML for formatted content, but be careful with user input
+            if (role === 'assistant') {
+                contentDiv.innerHTML = formatMessage(content);
+            } else {
+                contentDiv.textContent = content; // Keep user messages as text for security
+            }
+            
+            messageDiv.appendChild(contentDiv);
+            
+            if (role === 'assistant' && metadata) {
+                const metaDiv = document.createElement('div');
+                metaDiv.className = 'message-metadata';
+                
+                let metaText = '';
+                if (metadata.current_stage) {
+                    const stageNames = {
+                        introduction: '🌱 Introduction',
+                        deep_learning: '🧠 Deep Learning',
+                        consolidation: '🎯 Consolidation',
+                        revision: '📖 Revision',
+                        quiz: '🧠 Quiz',
+                        feedback: '📊 Feedback',
+                        question_answered: '❓ Question Answered'
+                    };
+                    const stageName = stageNames[metadata.current_stage] || metadata.current_stage;
+                    metaText += `Stage: ${stageName}`;
+                }
+                
+                if (metadata.conversation_count) {
+                    metaText += ` | Interaction #${metadata.conversation_count}`;
+                }
+                
+                metaDiv.textContent = metaText;
+                messageDiv.appendChild(metaDiv);
+                
+                // Add sources if available
+                if (metadata.sources && metadata.sources.length > 0) {
+                    const sourcesDiv = document.createElement('div');
+                    sourcesDiv.className = 'sources';
+                    sourcesDiv.innerHTML = `
+                        <div class="sources-title">📚 Content Sources:</div>
+                        ${metadata.sources.map(source => `• Section ${source}`).join('<br>')}
+                    `;
+                    messageDiv.appendChild(sourcesDiv);
+                }
+            }
+            
+            elements.messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        console.log('🚀 Tattvik Frontend loaded successfully!');
+    </script>
+</body>
+</html>
