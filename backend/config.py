@@ -26,33 +26,9 @@ class Config:
     PORT: int = 8000
 
     @classmethod
-    def calculate_topic_limits(cls, content_chunks: int) -> dict:
-        """Calculate dynamic limits based on topic content size"""
-        
-        # Base calculation on content chunks available
-        base_conversations = max(cls.MIN_CONVERSATIONS, content_chunks * 2)
-        max_conversations = min(cls.MAX_CONVERSATIONS, base_conversations)
-        completion_threshold = max(6, int(max_conversations * 0.6))
-        
-        return {
-            "max_conversations": max_conversations,
-            "completion_threshold": completion_threshold,
-            "quiz_frequency": max(3, int(max_conversations / 5))  # Quiz every N interactions
-        }
-    
-    @classmethod
-    def get_topic_config(cls, topic: str) -> Dict[str, int]:
-        """Get configuration for a specific topic (backward compatibility)"""
-        
-        return {
-            "max_conversations": cls.MAX_CONVERSATIONS,
-            "completion_threshold": int(cls.MAX_CONVERSATIONS * 0.6)
-        }
-    
-
-    @classmethod
     def validate_config(cls):
         if not cls.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is required")
         if not cls.MONGODB_URI:
+
             raise ValueError("MONGODB_URI is required")
