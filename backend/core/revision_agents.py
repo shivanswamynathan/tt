@@ -1,535 +1,620 @@
-from langchain.schema import HumanMessage, SystemMessage
-from typing import List, Dict, Any, Optional
+from langgraph.graph import StateGraph, END, START
+from langgraph.graph.message import add_messages
+from langchain.schema import HumanMessage, SystemMessage, AIMessage
+from typing import List, Dict, Any, Optional, Annotated, TypedDict
 import logging
 from backend.core.llm import GeminiLLMWrapper
 from backend.core.mongodb_client import MongoDBClient
-from backend.models.schemas import SessionState
-from backend.config import Config
 from backend.prompts.revision_prompts import RevisionPrompts
 from datetime import datetime
+import uuid
 
 logger = logging.getLogger(__name__)
 
-class DynamicRevisionAgent:
+# State Definition for LangGraph
+class RevisionState(TypedDict):
+    """State for the revision learning flow"""
+    # Session info
+    session_id: str
+    student_id: str
+    topic: str
+    
+    # Current position
+    current_subtopic_index: int
+    current_message_step: int
+    
+    # Content data
+    subtopics: List[Dict[str, Any]]
+    
+    # Learning progress
+    concepts_learned: List[str]
+    concept_scores: List[float]
+    total_interactions: int
+    
+    # Current interaction
+    user_input: Optional[str]
+    last_ai_response: Optional[str]
+    waiting_for_answer: bool
+    current_question: Optional[str]
+    
+    # Session state
+    session_complete: bool
+    stage: str  # 'intro', 'learning', 'question', 'feedback', 'complete'
+    
+    # Messages for context
+    messages: Annotated[List, add_messages]
+
+class LangGraphRevisionAgent:
     """
-    AI tutor agent for managing adaptive learning sessions.
-    - Orchestrates revision, quiz, and feedback phases based on student progress
-    - Detects student intent and routes to appropriate response handlers
-    - Persists conversation history and tracks learning metrics in MongoDB
+    Enhanced revision agent using LangGraph for structured learning flow.
+    
+    Flow:
+    1. Topic introduction
+    2. For each concept:
+       - Explain step by step (multiple short messages)
+       - Ask check question
+       - Wait for answer
+       - Give feedback
+       - Move to next concept
+    3. Final summary
     """
 
     def __init__(self, llm_wrapper: GeminiLLMWrapper, mongodb_client: MongoDBClient):
         self.llm = llm_wrapper
         self.mongodb = mongodb_client
         self.prompts = RevisionPrompts()
+        self.graph = self._build_graph()
 
-    async def start_revision_session(self, topic: str, student_id: str, session_id: str) -> dict:
-        """Start with brief topic intro + proceed question"""
+    def _build_graph(self) -> StateGraph:
+        """Build the LangGraph workflow"""
         
-        # Get subtopics for this topic
-        topic_title = topic.split(": ")[-1] if ": " in topic else topic
-        subtopics = self.mongodb.get_topic_subtopics(topic_title)
-        subtopics_count = len(subtopics)
+        workflow = StateGraph(RevisionState)
         
-        # Calculate topic config
-        topic_config = Config.calculate_topic_limits(subtopics_count)
+        # Add nodes
+        workflow.add_node("initialize_session", self._initialize_session)
+        workflow.add_node("topic_introduction", self._topic_introduction)
+        workflow.add_node("start_concept_explanation", self._start_concept_explanation)
+        workflow.add_node("continue_explanation", self._continue_explanation)
+        workflow.add_node("ask_check_question", self._ask_check_question)
+        workflow.add_node("evaluate_answer", self._evaluate_answer)
+        workflow.add_node("give_feedback", self._give_feedback)
+        workflow.add_node("move_to_next_concept", self._move_to_next_concept)
+        workflow.add_node("handle_user_question", self._handle_user_question)
+        workflow.add_node("session_summary", self._session_summary)
         
-        # Initialize session with subtopic tracking
-        session_data = {
-            "session_id": session_id,
-            "student_id": student_id,
-            "topic": topic,
-            "started_at": datetime.now(),
-            "conversation_count": 0,
-            "is_complete": False,
-            "stage": "topic_intro",
-            "quiz_frequency": topic_config["quiz_frequency"],
-            "concepts_learned": [],
-            "quiz_scores": [],
-            "needs_remedial": False,
-            "max_conversations": topic_config["max_conversations"],
-            "completion_threshold": topic_config["completion_threshold"],
-            "conversation_history": [],
-            # New subtopic tracking
-            "current_subtopic_index": 0,
-            "subtopic_completion_status": [False] * subtopics_count,
-            "subtopic_quiz_scores": []
-        }
+        # Define edges
+        workflow.add_edge(START, "initialize_session")
+        workflow.add_edge("initialize_session", "topic_introduction")
         
-        # Generate brief intro using new prompt
-        intro_response = await self._generate_response_from_prompt(
-            self.prompts.get_topic_introduction_prompt(topic, subtopics_count),
-            "You are a mobile-friendly tutor. Follow the prompt instructions for length and tone (usually 4-5 lines). Be engaging and simple."
-
+        # Conditional routing from topic introduction
+        workflow.add_conditional_edges(
+            "topic_introduction",
+            self._route_after_intro,
+            {
+                "start_concept": "start_concept_explanation",
+                "complete": "session_summary"
+            }
         )
         
-        # Save initial turn
-        session_data["conversation_history"].append({
-            "turn": 0,
-            "type": "topic_intro",
-            "assistant_message": intro_response,
-            "timestamp": datetime.now()
-        })
-        self.mongodb.save_revision_session(session_data)
+        # Concept explanation flow
+        workflow.add_conditional_edges(
+            "start_concept_explanation",
+            self._route_explanation,
+            {
+                "continue": "continue_explanation",
+                "question": "ask_check_question"
+            }
+        )
+        
+        workflow.add_conditional_edges(
+            "continue_explanation",
+            self._route_explanation,
+            {
+                "continue": "continue_explanation",
+                "question": "ask_check_question"
+            }
+        )
+        
+        # Question and feedback flow
+        workflow.add_edge("ask_check_question", "evaluate_answer")
+        workflow.add_edge("evaluate_answer", "give_feedback")
+        
+        workflow.add_conditional_edges(
+            "give_feedback",
+            self._route_after_feedback,
+            {
+                "next_concept": "move_to_next_concept",
+                "complete": "session_summary"
+            }
+        )
+        
+        workflow.add_conditional_edges(
+            "move_to_next_concept",
+            self._route_next_concept,
+            {
+                "start_concept": "start_concept_explanation",
+                "complete": "session_summary"
+            }
+        )
+        
+        # User question handling
+        workflow.add_conditional_edges(
+            "handle_user_question",
+            self._route_after_user_question,
+            {
+                "continue_explanation": "continue_explanation",
+                "ask_question": "ask_check_question",
+                "next_concept": "move_to_next_concept"
+            }
+        )
+        
+        workflow.add_edge("session_summary", END)
+        
+        return workflow.compile()
+
+    async def start_revision_session(self, topic: str, student_id: str, session_id: str) -> dict:
+        """Start a new revision session"""
+        
+        # Get subtopics
+        topic_title = topic.split(": ")[-1] if ": " in topic else topic
+        subtopics = self.mongodb.get_topic_subtopics(topic_title)
+        
+        if not subtopics:
+            return {
+                "response": "Sorry, no content found for this topic.",
+                "is_session_complete": True,
+                "current_stage": "error"
+            }
+        
+        # Initialize state
+        initial_state = RevisionState(
+            session_id=session_id,
+            student_id=student_id,
+            topic=topic,
+            current_subtopic_index=0,
+            current_message_step=0,
+            subtopics=subtopics,
+            concepts_learned=[],
+            concept_scores=[],
+            total_interactions=0,
+            user_input=None,
+            last_ai_response=None,
+            waiting_for_answer=False,
+            current_question=None,
+            session_complete=False,
+            stage="intro",
+            messages=[]
+        )
+        
+        # Run the graph
+        result = await self.graph.ainvoke(initial_state)
+        
+        # Save to database
+        self._save_session_state(result)
         
         return {
-            "response": intro_response,
+            "response": result["last_ai_response"],
             "topic": topic,
             "session_id": session_id,
-            "conversation_count": 0,
-            "is_session_complete": False,
-            "current_stage": "topic_intro",
-            "sources": [],
-            "max_conversations": topic_config["max_conversations"],
-            "completion_threshold": topic_config["completion_threshold"]
+            "conversation_count": result["total_interactions"],
+            "is_session_complete": result["session_complete"],
+            "current_stage": result["stage"],
+            "sources": [f"3.{result['current_subtopic_index'] + 1}"] if result["subtopics"] else []
         }
 
     async def handle_user_input(self, session_id: str, user_query: Optional[str] = None) -> Dict[str, Any]:
-        """Process user input with subtopic-based flow control"""
+        """Handle user input and continue the session"""
         
+        # Load session state
         session_data = self.mongodb.get_revision_session(session_id)
         if not session_data:
             return {"response": "Session not found.", "is_session_complete": False}
-
-        # Update conversation count
-        session_data["conversation_count"] += 1
-        last_bot_message = session_data.get("conversation_history", [])[-1].get("assistant_message", "") if session_data.get("conversation_history") else ""
-
-        # Detect intent
-        intent = await self._detect_intent(user_query, last_bot_message)
-
-        # Route based on intent
-        if intent == "END":
-            response_data = await self._complete_session(session_data)
-        elif intent == "PROCEED":
-            response_data = await self._start_first_subtopic(session_data, last_bot_message)
-        elif intent == "LEARN":
-            response_data = await self._teach_current_subtopic(session_data, last_bot_message)
-        elif intent == "QUIZ":
-            response_data = await self._generate_subtopic_quiz(session_data, last_bot_message)
-        elif intent == "FEEDBACK":
-            response_data = await self._evaluate_subtopic_quiz(session_data, user_query, last_bot_message)
-        elif intent == "RETRY":
-            response_data = await self._retry_subtopic_explanation(session_data, last_bot_message)
-        elif intent == "NEXT":
-            response_data = await self._move_to_next_subtopic(session_data, last_bot_message)
-        else:
-            response_data = await self._handle_general_question(session_data, user_query, last_bot_message)
-
-        # Save conversation turn
-        await self._save_conversation_turn(session_data, user_query, response_data)
-        return response_data
-
-    async def _detect_intent(self, user_query: str, last_bot_message: str) -> str:
-        """Enhanced intent detection for subtopic flow"""
-        if not user_query:
-            return "CONTINUE"
-
-        prompt = f"""
-        Decide what the user wants based on conversation context.
-
-        Last assistant message: "{last_bot_message}"
-        User message: "{user_query}"
-
-        Classify into one of these:
-        - PROCEED: User wants to start learning concepts/subtopics
-        - LEARN: User wants to learn current subtopic
-        - QUIZ: User wants quiz for current subtopic  
-        - FEEDBACK: User submitted quiz answers
-        - RETRY: User wants to retry after failing
-        - NEXT: User wants to move to next subtopic
-        - END: User wants to finish session
-
-        Reply with ONLY one word: PROCEED, LEARN, QUIZ, FEEDBACK, RETRY, NEXT, END
-        """
-
-        try:
-            response = await self.llm.generate_response([
-                SystemMessage(content="You are a precise classifier. Reply with PROCEED, LEARN, QUIZ, FEEDBACK, RETRY, NEXT, or END."),
-                HumanMessage(content=prompt)
-            ])
-            return response.strip().upper()
-        except Exception:
-            # Enhanced fallback logic
-            text = user_query.lower()
-            if any(x in text for x in ["yes", "ready", "start", "proceed", "begin"]):
-                return "PROCEED"
-            if any(x in text for x in ["quiz", "test", "check"]):
-                return "QUIZ"
-            if any(x in text for x in ["next", "move on", "continue"]):
-                return "NEXT"
-            if any(x in text for x in ["retry", "again", "explain"]):
-                return "RETRY"
-            if any(x in text for x in ["end", "finish", "done", "stop"]):
-                return "END"
-            if "=" in text or any(x in text for x in ["answer", "a)", "b)", "c)", "true", "false"]):
-                return "FEEDBACK"
-            return "LEARN"
-
-    async def _evaluate_quiz_performance(self, user_answers: str, topic: str) -> float:
-        """
-        Score student quiz answers using AI evaluation.
-        - Uses LLM to evaluate answer quality and correctness
-        - Extracts numerical score from AI response
-        - Returns normalized score between 0.0 and 1.0
         
-        Input: user_answers (str), topic (str)
-        Output: float (performance score 0.0-1.0)
-        """
-        prompt = f"""
-        Evaluate the student's quiz answers for "{topic}".
-        Answers: {user_answers}
-        Score from 0.0 to 1.0 (only number).
-        """
+        # Convert to state format
+        state = self._load_session_state(session_data, user_query)
+        
+        # Determine entry point based on current state
+        if self._is_user_asking_question(user_query, state):
+            # User asked a question - handle it
+            state["stage"] = "user_question"
+            result = await self._handle_user_question(state)
+        elif state["waiting_for_answer"] and state["current_question"]:
+            # User is answering a check question
+            state["user_input"] = user_query
+            result = await self._evaluate_answer(state)
+            result = await self._give_feedback(result)
+            
+            # Continue flow
+            if result["current_subtopic_index"] < len(result["subtopics"]) - 1:
+                result = await self._move_to_next_concept(result)
+                if not result["session_complete"]:
+                    result = await self._start_concept_explanation(result)
+            else:
+                result["session_complete"] = True
+                result = await self._session_summary(result)
+        else:
+            # Continue current explanation or start next step
+            if state["stage"] == "learning":
+                result = await self._continue_explanation(state)
+                if result["stage"] == "question":
+                    result = await self._ask_check_question(result)
+            else:
+                # Default to continuing explanation
+                result = await self._continue_explanation(state)
+        
+        # Save updated state
+        self._save_session_state(result)
+        
+        return {
+            "response": result["last_ai_response"],
+            "topic": result["topic"],
+            "session_id": session_id,
+            "conversation_count": result["total_interactions"],
+            "is_session_complete": result["session_complete"],
+            "current_stage": result["stage"],
+            "sources": [f"3.{result['current_subtopic_index'] + 1}"] if result["subtopics"] else []
+        }
 
+    # Graph Node Functions
+    async def _initialize_session(self, state: RevisionState) -> RevisionState:
+        """Initialize the session"""
+        state["total_interactions"] = 0
+        state["stage"] = "intro"
+        return state
+
+    async def _topic_introduction(self, state: RevisionState) -> RevisionState:
+        """Give topic introduction"""
+        subtopics_count = len(state["subtopics"])
+        
+        intro_prompt = self.prompts.get_topic_introduction_prompt(
+            state["topic"], 
+            subtopics_count
+        )
+        
+        response = await self._generate_response(intro_prompt, "Keep it brief and engaging (2-3 lines).")
+        
+        state["last_ai_response"] = response
+        state["total_interactions"] += 1
+        state["messages"].append(AIMessage(content=response))
+        
+        return state
+
+    async def _start_concept_explanation(self, state: RevisionState) -> RevisionState:
+        """Start explaining current concept"""
+        if state["current_subtopic_index"] >= len(state["subtopics"]):
+            state["session_complete"] = True
+            return state
+        
+        current_subtopic = state["subtopics"][state["current_subtopic_index"]]
+        state["current_message_step"] = 1
+        state["stage"] = "learning"
+        
+        # Generate first explanation message
+        explanation_prompt = self.prompts.get_step_by_step_explanation_prompt(
+            current_subtopic["subtopic_title"],
+            current_subtopic["content"],
+            step=1,
+            total_steps=3  # We'll do 3 explanation steps
+        )
+        
+        response = await self._generate_response(
+            explanation_prompt, 
+            "Explain this step in 1-2 simple sentences. Be clear and engaging."
+        )
+        
+        state["last_ai_response"] = response
+        state["total_interactions"] += 1
+        state["messages"].append(AIMessage(content=response))
+        
+        return state
+
+    async def _continue_explanation(self, state: RevisionState) -> RevisionState:
+        """Continue step-by-step explanation"""
+        if state["current_subtopic_index"] >= len(state["subtopics"]):
+            state["session_complete"] = True
+            return state
+        
+        current_subtopic = state["subtopics"][state["current_subtopic_index"]]
+        state["current_message_step"] += 1
+        
+        if state["current_message_step"] <= 3:  # 3 explanation steps
+            explanation_prompt = self.prompts.get_step_by_step_explanation_prompt(
+                current_subtopic["subtopic_title"],
+                current_subtopic["content"],
+                step=state["current_message_step"],
+                total_steps=3
+            )
+            
+            response = await self._generate_response(
+                explanation_prompt,
+                "Continue the explanation in 1-2 simple sentences."
+            )
+            
+            state["last_ai_response"] = response
+            state["total_interactions"] += 1
+            state["messages"].append(AIMessage(content=response))
+        else:
+            # Move to question phase
+            state["stage"] = "question"
+        
+        return state
+
+    async def _ask_check_question(self, state: RevisionState) -> RevisionState:
+        """Ask a simple check question"""
+        if state["current_subtopic_index"] >= len(state["subtopics"]):
+            state["session_complete"] = True
+            return state
+        
+        current_subtopic = state["subtopics"][state["current_subtopic_index"]]
+        
+        question_prompt = self.prompts.get_simple_check_question_prompt(
+            current_subtopic["subtopic_title"],
+            current_subtopic["content"]
+        )
+        
+        response = await self._generate_response(
+            question_prompt,
+            "Ask one simple question to check understanding. Keep it short."
+        )
+        
+        state["last_ai_response"] = response
+        state["current_question"] = response
+        state["waiting_for_answer"] = True
+        state["stage"] = "question"
+        state["total_interactions"] += 1
+        state["messages"].append(AIMessage(content=response))
+        
+        return state
+
+    async def _evaluate_answer(self, state: RevisionState) -> RevisionState:
+        """Evaluate user's answer"""
+        if not state["user_input"] or not state["current_question"]:
+            return state
+        
+        current_subtopic = state["subtopics"][state["current_subtopic_index"]]
+        
+        # Evaluate the answer
+        score = await self._score_answer(
+            state["user_input"],
+            state["current_question"],
+            current_subtopic["content"]
+        )
+        
+        state["concept_scores"].append(score)
+        state["waiting_for_answer"] = False
+        state["stage"] = "feedback"
+        
+        # Add user message to context
+        state["messages"].append(HumanMessage(content=state["user_input"]))
+        
+        return state
+
+    async def _give_feedback(self, state: RevisionState) -> RevisionState:
+        """Give feedback on the answer"""
+        if not state["concept_scores"]:
+            return state
+        
+        current_score = state["concept_scores"][-1]
+        current_subtopic = state["subtopics"][state["current_subtopic_index"]]
+        
+        feedback_prompt = self.prompts.get_answer_feedback_prompt(
+            state["user_input"],
+            current_score >= 0.6,  # Pass threshold
+            current_subtopic["subtopic_title"]
+        )
+        
+        response = await self._generate_response(
+            feedback_prompt,
+            "Give brief, encouraging feedback (1-2 lines)."
+        )
+        
+        state["last_ai_response"] = response
+        state["total_interactions"] += 1
+        state["messages"].append(AIMessage(content=response))
+        
+        # Mark concept as learned if passed
+        if current_score >= 0.6:
+            concept_name = current_subtopic["subtopic_title"]
+            if concept_name not in state["concepts_learned"]:
+                state["concepts_learned"].append(concept_name)
+        
+        return state
+
+    async def _move_to_next_concept(self, state: RevisionState) -> RevisionState:
+        """Move to the next concept"""
+        state["current_subtopic_index"] += 1
+        state["current_message_step"] = 0
+        state["current_question"] = None
+        state["user_input"] = None
+        
+        if state["current_subtopic_index"] >= len(state["subtopics"]):
+            state["session_complete"] = True
+            state["stage"] = "complete"
+        else:
+            state["stage"] = "learning"
+        
+        return state
+
+    async def _handle_user_question(self, state: RevisionState) -> RevisionState:
+        """Handle user's question"""
+        if state["current_subtopic_index"] < len(state["subtopics"]):
+            current_subtopic = state["subtopics"][state["current_subtopic_index"]]
+            content_context = current_subtopic["content"][:300]
+        else:
+            content_context = "General topic content"
+        
+        question_response_prompt = self.prompts.get_user_question_response_prompt(
+            state["user_input"],
+            content_context
+        )
+        
+        response = await self._generate_response(
+            question_response_prompt,
+            "Answer the question briefly and ask if they want to continue."
+        )
+        
+        state["last_ai_response"] = response
+        state["total_interactions"] += 1
+        state["messages"].append(HumanMessage(content=state["user_input"]))
+        state["messages"].append(AIMessage(content=response))
+        
+        # Reset to learning mode
+        state["stage"] = "learning"
+        
+        return state
+
+    async def _session_summary(self, state: RevisionState) -> RevisionState:
+        """Provide session summary"""
+        total_concepts = len(state["subtopics"])
+        concepts_learned = len(state["concepts_learned"])
+        avg_score = sum(state["concept_scores"]) / len(state["concept_scores"]) if state["concept_scores"] else 0
+        
+        summary_prompt = self.prompts.get_session_summary_prompt(
+            total_concepts,
+            concepts_learned,
+            avg_score,
+            state["concepts_learned"]
+        )
+        
+        response = await self._generate_response(
+            summary_prompt,
+            "Give encouraging final summary (3-4 lines)."
+        )
+        
+        state["last_ai_response"] = response
+        state["session_complete"] = True
+        state["stage"] = "complete"
+        state["total_interactions"] += 1
+        state["messages"].append(AIMessage(content=response))
+        
+        return state
+
+    # Routing Functions
+    def _route_after_intro(self, state: RevisionState) -> str:
+        """Route after topic introduction"""
+        if len(state["subtopics"]) == 0:
+            return "complete"
+        return "start_concept"
+
+    def _route_explanation(self, state: RevisionState) -> str:
+        """Route during explanation phase"""
+        if state["current_message_step"] < 3:
+            return "continue"
+        return "question"
+
+    def _route_after_feedback(self, state: RevisionState) -> str:
+        """Route after giving feedback"""
+        if state["current_subtopic_index"] >= len(state["subtopics"]) - 1:
+            return "complete"
+        return "next_concept"
+
+    def _route_next_concept(self, state: RevisionState) -> str:
+        """Route when moving to next concept"""
+        if state["session_complete"]:
+            return "complete"
+        return "start_concept"
+
+    def _route_after_user_question(self, state: RevisionState) -> str:
+        """Route after handling user question"""
+        if state["waiting_for_answer"]:
+            return "ask_question"
+        elif state["current_message_step"] < 3:
+            return "continue_explanation"
+        else:
+            return "next_concept"
+
+    # Helper Functions
+    async def _generate_response(self, prompt: str, system_message: str) -> str:
+        """Generate AI response"""
         try:
             response = await self.llm.generate_response([
-                SystemMessage(content="Reply only with a number between 0.0 and 1.0"),
+                SystemMessage(content=system_message),
                 HumanMessage(content=prompt)
             ])
+            return response
+        except Exception as e:
+            logger.error(f"Error generating response: {e}")
+            return "I'm having trouble responding right now. Let's continue."
+
+    async def _score_answer(self, user_answer: str, question: str, content: str) -> float:
+        """Score the user's answer"""
+        scoring_prompt = f"""
+        Question: {question}
+        Student Answer: {user_answer}
+        Content Context: {content[:200]}
+        
+        Score from 0.0 to 1.0 based on correctness and understanding.
+        Reply with only the number.
+        """
+        
+        try:
+            response = await self.llm.generate_response([
+                SystemMessage(content="You are scoring an answer. Reply only with a number between 0.0 and 1.0."),
+                HumanMessage(content=scoring_prompt)
+            ])
+            
             import re
             match = re.search(r'0\.\d+|1\.0|0|1', response)
             return float(match.group()) if match else 0.5
         except:
             return 0.5
 
-    async def _generate_response_from_prompt(self, prompt: str, system_message: str) -> str:
-
-        """
-        Generate AI response using structured prompts.
-        - Combines system instructions with specific prompt content
-        - Sends formatted messages to LLM for response generation
-        - Returns clean AI-generated educational content
+    def _is_user_asking_question(self, user_input: str, state: RevisionState) -> bool:
+        """Check if user is asking a question rather than answering"""
+        if not user_input:
+            return False
         
-        Input: prompt (str), system_message (str)
-        Output: str (AI-generated response)
-        """
-        return await self.llm.generate_response([
-            SystemMessage(content=system_message),
-            HumanMessage(content=prompt)
-        ])
-
-    def _extract_concept_name(self, text: str) -> str:
-        """
-        Extract key concept from content text for tracking.
-        - Identifies main concept from first sentence or text chunk
-        - Limits concept name to first 3 words or 50 characters
-        - Provides concept labels for learning progress tracking
+        # If we're waiting for an answer and user gives a short response, it's probably an answer
+        if state["waiting_for_answer"] and len(user_input.split()) <= 5:
+            return False
         
-        Input: text (str)
-        Output: str (extracted concept name)
-        """
-        first_sentence = text.split('.')[0] if '.' in text else text
-        words = first_sentence.split()
-        return " ".join(words[:3]) if len(words) >= 3 else first_sentence[:50]
-
-    async def _save_conversation_turn(self, session_data: Dict[str, Any], user_query: Optional[str], response_data: Dict[str, Any]):
-
-        """
-        Persist conversation interaction and update progress.
-        - Saves individual conversation turn with timestamps
-        - Updates session progress metrics and learning state
-        - Maintains complete conversation history for context
+        # Check for question indicators
+        question_indicators = ["what", "how", "why", "when", "where", "can you", "could you", "explain", "?"]
+        user_lower = user_input.lower()
         
-        Input: session_data (Dict), user_query (Optional[str]), response_data (Dict)
-        Output: None (saves to database)
-        """
-        turn_data = {
-            "turn": session_data["conversation_count"],
-            "user_message": user_query,
-            "assistant_message": response_data["response"],
-            "stage": response_data["current_stage"],
-            "timestamp": datetime.now()
+        return any(indicator in user_lower for indicator in question_indicators)
+
+    def _save_session_state(self, state: RevisionState):
+        """Save session state to database"""
+        session_data = {
+            "session_id": state["session_id"],
+            "student_id": state["student_id"],
+            "topic": state["topic"],
+            "current_subtopic_index": state["current_subtopic_index"],
+            "current_message_step": state["current_message_step"],
+            "concepts_learned": state["concepts_learned"],
+            "concept_scores": state["concept_scores"],
+            "total_interactions": state["total_interactions"],
+            "waiting_for_answer": state["waiting_for_answer"],
+            "current_question": state["current_question"],
+            "session_complete": state["session_complete"],
+            "stage": state["stage"],
+            "updated_at": datetime.now()
         }
-        self.mongodb.save_conversation_turn(session_data["session_id"], turn_data)
-
-        progress_data = {
-            "conversation_count": session_data["conversation_count"],
-            "current_stage": response_data["current_stage"],
-            "concepts_learned": session_data.get("concepts_learned", []),
-            "quiz_scores": session_data.get("quiz_scores", []),
-            "needs_remedial": session_data.get("needs_remedial", False)
-        }
-        self.mongodb.update_session_progress(session_data["session_id"], progress_data)
-
-    async def _complete_session(self, session_data: Dict[str, Any]) -> Dict[str, Any]:
-
-        """
-        Finalize session with performance summary.
-        - Calculates final statistics including average scores and concepts learned
-        - Generates session completion summary for student
-        - Marks session as complete in database with final metrics
         
-        Input: session_data (Dict)
-        Output: Dict with completion response, is_session_complete (True), session_summary
-        """
-        quiz_scores = session_data.get('quiz_scores', [])
-        avg_score = sum(quiz_scores) / len(quiz_scores) if quiz_scores else 0
-        concepts_learned = len(session_data.get('concepts_learned', []))
+        self.mongodb.save_revision_session(session_data)
 
-        summary = f"Session complete! You learned {concepts_learned} concepts and achieved {avg_score:.1%} average score."
-        final_data = {
-            "is_complete": True,
-            "completed_at": datetime.now(),
-            "final_stats": {
-                "total_interactions": session_data["conversation_count"],
-                "concepts_learned": concepts_learned,
-                "quizzes_taken": len(quiz_scores),
-                "average_performance": avg_score
-            },
-            "session_summary": summary
-        }
-        self.mongodb.update_session_progress(session_data["session_id"], final_data)
-        return {
-            "response": summary,
-            "is_session_complete": True,
-            "session_summary": summary
-        }
-    async def _start_first_subtopic(self, session_data: Dict[str, Any], last_bot_message: str) -> Dict[str, Any]:
-        """Start learning the first subtopic"""
+    def _load_session_state(self, session_data: Dict[str, Any], user_input: str) -> RevisionState:
+        """Load session state from database"""
+        # Get subtopics
         topic_title = session_data["topic"].split(": ")[-1] if ": " in session_data["topic"] else session_data["topic"]
         subtopics = self.mongodb.get_topic_subtopics(topic_title)
         
-        if not subtopics:
-            return {"response": "No subtopics found.", "current_stage": "error", "is_session_complete": False}
-        
-        first_subtopic = subtopics[0]
-        session_data["current_subtopic_index"] = 0
-        session_data["stage"] = "learning"
-        
-        response = await self._generate_response_from_prompt(
-            self.prompts.get_subtopic_learning_prompt(
-                first_subtopic["subtopic_title"],
-                first_subtopic["content"],
-                first_subtopic["subtopic_number"],
-                last_bot_message
-            ),
-            "You are a mobile-friendly tutor. Keep responses to maximum 2 lines."
+        return RevisionState(
+            session_id=session_data["session_id"],
+            student_id=session_data["student_id"],
+            topic=session_data["topic"],
+            current_subtopic_index=session_data.get("current_subtopic_index", 0),
+            current_message_step=session_data.get("current_message_step", 0),
+            subtopics=subtopics,
+            concepts_learned=session_data.get("concepts_learned", []),
+            concept_scores=session_data.get("concept_scores", []),
+            total_interactions=session_data.get("total_interactions", 0),
+            user_input=user_input,
+            last_ai_response=session_data.get("last_ai_response", ""),
+            waiting_for_answer=session_data.get("waiting_for_answer", False),
+            current_question=session_data.get("current_question"),
+            session_complete=session_data.get("session_complete", False),
+            stage=session_data.get("stage", "learning"),
+            messages=[]  # We could load this from conversation_history if needed
         )
-        
-        return {
-            "response": response,
-            "current_stage": "learning",
-            "is_session_complete": False,
-            "sources": [first_subtopic["subtopic_number"]]
-        }
-
-    async def _teach_current_subtopic(self, session_data: Dict[str, Any], last_bot_message: str) -> Dict[str, Any]:
-        """Teach the current subtopic"""
-        topic_title = session_data["topic"].split(": ")[-1] if ": " in session_data["topic"] else session_data["topic"]
-        subtopics = self.mongodb.get_topic_subtopics(topic_title)
-        current_index = session_data.get("current_subtopic_index", 0)
-        
-        if current_index >= len(subtopics):
-            return await self._complete_session(session_data)
-        
-        current_subtopic = subtopics[current_index]
-        
-        response = await self._generate_response_from_prompt(
-            self.prompts.get_subtopic_learning_prompt(
-                current_subtopic["subtopic_title"],
-                current_subtopic["content"],
-                current_subtopic["subtopic_number"],
-                last_bot_message
-            ),
-            "You are a mobile-friendly tutor. Keep responses to maximum 2 lines."
-        )
-        
-        return {
-            "response": response,
-            "current_stage": "learning", 
-            "is_session_complete": False,
-            "sources": [current_subtopic["subtopic_number"]]
-        }
-
-    async def _generate_subtopic_quiz(self, session_data: Dict[str, Any], last_bot_message: str) -> Dict[str, Any]:
-        """Generate 2-question quiz for current subtopic"""
-        topic_title = session_data["topic"].split(": ")[-1] if ": " in session_data["topic"] else session_data["topic"]
-        subtopics = self.mongodb.get_topic_subtopics(topic_title)
-        current_index = session_data.get("current_subtopic_index", 0)
-        
-        current_subtopic = subtopics[current_index]
-        session_data["stage"] = "quiz"
-        
-        response = await self._generate_response_from_prompt(
-            self.prompts.get_subtopic_quiz_prompt(
-                current_subtopic["subtopic_title"],
-                current_subtopic["content"],
-                current_subtopic["subtopic_number"],
-                last_bot_message
-            ),
-            "Create exactly 2 questions. Keep it short."
-        )
-        
-        return {
-            "response": response,
-            "current_stage": "quiz",
-            "is_session_complete": False
-        }
-
-    async def _evaluate_subtopic_quiz(self, session_data: Dict[str, Any], user_answers: str, last_bot_message: str) -> Dict[str, Any]:
-        """Check answers and give pass/fail feedback"""
-        score = await self._evaluate_quiz_performance(user_answers, session_data["topic"])
-        passed = score >= 0.6
-        
-        current_index = session_data.get("current_subtopic_index", 0)
-        
-        # Initialize tracking lists if needed
-        if "subtopic_quiz_scores" not in session_data:
-            session_data["subtopic_quiz_scores"] = []
-        if "subtopic_completion_status" not in session_data:
-            session_data["subtopic_completion_status"] = []
-        
-        # Extend lists using range/for loop
-        needed_completion_length = current_index + 1
-        for i in range(len(session_data["subtopic_completion_status"]), needed_completion_length):
-            session_data["subtopic_completion_status"].append(False)
-            
-        needed_scores_length = current_index + 1  
-        for i in range(len(session_data["subtopic_quiz_scores"]), needed_scores_length):
-            session_data["subtopic_quiz_scores"].append(0.0)
-        
-        session_data["subtopic_quiz_scores"][current_index] = score
-        session_data["subtopic_completion_status"][current_index] = passed
-
-        self.mongodb.update_session_progress(session_data["session_id"], {
-            "subtopic_quiz_scores": session_data["subtopic_quiz_scores"],
-            "subtopic_completion_status": session_data["subtopic_completion_status"]
-        })
-        
-        feedback_response = await self._generate_response_from_prompt(
-            self.prompts.get_subtopic_feedback_prompt(
-                user_answers,
-                "",  # Don't need correct answers for feedback
-                passed,
-                f"3.{current_index + 1}",
-                last_bot_message
-            ),
-            "Give brief feedback. Maximum 2 lines."
-        )
-        
-        if passed:
-            session_data["stage"] = "ready_next"
-            next_stage = "passed"
-        else:
-            session_data["stage"] = "retry"
-            next_stage = "failed"
-        
-        return {
-            "response": feedback_response,
-            "current_stage": next_stage,
-            "is_session_complete": False,
-            "performance_score": score
-        }
-
-    async def _retry_subtopic_explanation(self, session_data: Dict[str, Any], last_bot_message: str) -> Dict[str, Any]:
-        """Re-explain current subtopic simply"""
-        topic_title = session_data["topic"].split(": ")[-1] if ": " in session_data["topic"] else session_data["topic"]
-        subtopics = self.mongodb.get_topic_subtopics(topic_title)
-        current_index = session_data.get("current_subtopic_index", 0)
-        
-        current_subtopic = subtopics[current_index]
-        
-        response = await self._generate_response_from_prompt(
-            self.prompts.get_retry_explanation_prompt(
-                current_subtopic["subtopic_title"],
-                current_subtopic["content"],
-                current_subtopic["subtopic_number"],
-                last_bot_message
-            ),
-            "You are re-explaining simply. Maximum 2 lines."
-        )
-        
-        return {
-            "response": response,
-            "current_stage": "retry_learning",
-            "is_session_complete": False,
-            "sources": [current_subtopic["subtopic_number"]]
-        }
-
-    async def _move_to_next_subtopic(self, session_data: Dict[str, Any], last_bot_message: str) -> Dict[str, Any]:
-        current_index = session_data.get("current_subtopic_index", 0)
-        topic_title = session_data["topic"].split(": ")[-1] if ": " in session_data["topic"] else session_data["topic"]
-        subtopics = self.mongodb.get_topic_subtopics(topic_title)
-
-        completion_status = session_data.get("subtopic_completion_status", [])
-        for i in range(len(completion_status), len(subtopics)):
-            completion_status.append(False)
-        session_data["subtopic_completion_status"] = completion_status
-
-        next_index = current_index + 1
-
-        if next_index >= len(subtopics):
-            quiz_scores = session_data.get("subtopic_quiz_scores", [])
-            overall_score = sum(quiz_scores) / len(quiz_scores) if quiz_scores else 0
-            passed_count = sum(1 for status in completion_status if status)
-
-            final_response = await self._generate_response_from_prompt(
-                self.prompts.get_final_assessment_prompt(overall_score, len(subtopics), passed_count, last_bot_message),
-                "Give final celebration. Follow prompt style (4-5 lines)."
-            )
-
-            session_data["is_complete"] = True
-            return {
-                "response": final_response,
-                "current_stage": "complete",
-                "is_session_complete": True,
-                "session_summary": final_response
-            }
-
-        warning_msg = ""
-        if not completion_status[current_index]:
-            warning_msg = "You didn’t pass the last quiz, but let’s keep going and improve! ✅\n\n"
-
-        session_data["current_subtopic_index"] = next_index
-        next_subtopic = subtopics[next_index]
-
-        response = await self._generate_response_from_prompt(
-            self.prompts.get_subtopic_learning_prompt(
-                next_subtopic["subtopic_title"],
-                next_subtopic["content"],
-                next_subtopic["subtopic_number"],
-                last_bot_message
-            ),
-            "You are a mobile-friendly tutor. Follow the prompt style (4-5 lines, engaging)."
-        )
-
-        return {
-            "response": warning_msg + response,
-            "current_stage": "learning",
-            "is_session_complete": False,
-            "sources": [next_subtopic["subtopic_number"]]
-        }
-
-
-    async def _handle_general_question(self, session_data: Dict[str, Any], user_query: str, last_bot_message: str) -> Dict[str, Any]:
-        """Handle general questions about current subtopic"""
-        topic_title = session_data["topic"].split(": ")[-1] if ": " in session_data["topic"] else session_data["topic"]
-        subtopics = self.mongodb.get_topic_subtopics(topic_title)
-        current_index = session_data.get("current_subtopic_index", 0)
-        
-        if current_index < len(subtopics):
-            current_subtopic = subtopics[current_index]
-            content_text = current_subtopic["content"][:300]
-        else:
-            content_text = "General topic content"
-        
-        response = await self._generate_response_from_prompt(
-            f"""
-            Previous assistant message: "{last_bot_message}"
-            Student asked: "{user_query}"
-            
-            Answer briefly in 1-2 lines using this content:
-            {content_text}
-            
-            Be helpful and ask if they want to continue learning.
-            """,
-            "You are answering a question briefly. Maximum 2 lines."
-        )
-        
-        return {
-            "response": response,
-            "current_stage": "question_answered",
-            "is_session_complete": False,
-            "sources": [f"3.{current_index + 1}"] if current_index < len(subtopics) else []
-        }
