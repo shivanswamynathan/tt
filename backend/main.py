@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from backend.config import Config
 from backend.core.llm import GeminiLLMWrapper
 from backend.core.mongodb_client import MongoDBClient
-from backend.core.revision_agents import DynamicRevisionAgent  
+from backend.core.revision_agents import LangGraphRevisionAgent as DynamicRevisionAgent
 from backend.api import revision
 
 
