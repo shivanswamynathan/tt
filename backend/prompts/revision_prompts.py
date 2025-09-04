@@ -1,123 +1,164 @@
+from typing import List
 class RevisionPrompts:
     """
-    Mobile-optimized prompts for subtopic-based learning flow.
-    All responses limited to 1-2 lines maximum.
+    Enhanced prompts for LangGraph-based step-by-step learning flow.
+    Supports short, focused interactions with immediate feedback.
     """
     
     @staticmethod
     def get_topic_introduction_prompt(topic: str, subtopics_count: int, last_bot_message: str = None) -> str:
-        """Brief topic overview + proceed question"""
-        context = f"Previous assistant message: '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
+        """Brief topic overview + readiness check"""
+        context = f"Previous message: '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
         
         return f"""
         {context}
-        Give a 1-sentence overview of "{topic}" which has {subtopics_count} subtopics.
-        Then ask: "Ready to start with the first concept?" 
+        Introduce the topic "{topic}" which has {subtopics_count} concepts to learn.
         
-        - Exactly 4-5 lines (more interactive)
-
-        Be engaging and use 1 emoji.
+        REQUIREMENTS:
+        - 1 sentence overview of what this topic covers
+        - Mention we'll learn step-by-step with quick checks
+        - End with: "Ready to start with the first concept?"
+        - Be encouraging and use 1 emoji
+        - Keep to 2-3 lines total
         """
     
     @staticmethod
-    def get_subtopic_learning_prompt(subtopic_title: str, subtopic_content: str, subtopic_number: str, last_bot_message: str = None) -> str:
-        """Mini lesson for one subtopic"""
-        context = f"Previous assistant message (for continuity): '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
+    def get_step_by_step_explanation_prompt(subtopic_title: str, subtopic_content: str, step: int, total_steps: int, last_bot_message: str = None) -> str:
+        """Step-by-step explanation broken into small messages"""
+        context = f"Previous message: '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
+        
+        step_focus = {
+            1: "Start with the basic definition and what this concept is about",
+            2: "Explain how it works or the main process/mechanism", 
+            3: "Give a simple example or real-world application"
+        }
+        
+        focus = step_focus.get(step, "Continue explaining the concept")
         
         return f"""
         {context}
-        Explain subtopic {subtopic_number}: "{subtopic_title}" in 4-5 lines.
+        You are explaining "{subtopic_title}" step by step.
+        
+        Content: {subtopic_content[:400]}
+        
+        This is Message {step} of {total_steps}.
+        Focus for this message: {focus}
+        
+        REQUIREMENTS:
+        - Explain just this step in 1-2 simple sentences
+        - Use easy language a student can understand
+        - Be clear and engaging
+        - Don't ask questions yet - just explain
+        - If step {total_steps}, add "Got that so far?"
+        """
+    
+    @staticmethod
+    def get_simple_check_question_prompt(subtopic_title: str, subtopic_content: str, last_bot_message: str = None) -> str:
+        """Generate a simple check question after explanation"""
+        context = f"Previous message: '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
+        
+        return f"""
+        {context}
+        Create ONE simple question to check if the student understood "{subtopic_title}".
         
         Content: {subtopic_content[:300]}
         
         REQUIREMENTS:
-        - Exactly 4-5 lines (more interactive)
-        - Simple language with examples
-        - Make it engaging and conversational
-        - End with "Got it? Ready for a quick check?"
+        - Ask ONE clear, simple question
+        - Make it easy to answer (not too complex)
+        - Can be multiple choice, true/false, or short answer
+        - Focus on the main concept only
+        - Keep the question to 1 line
+        - Don't explain - just ask the question
         """
     
     @staticmethod
-    def get_subtopic_quiz_prompt(subtopic_title: str, subtopic_content: str, subtopic_number: str, last_bot_message: str = None) -> str:
-        """2-question quiz per subtopic"""
-        context = f"Previous assistant message (for context): '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
+    def get_answer_feedback_prompt(user_answer: str, is_correct: bool, concept_name: str, last_bot_message: str = None) -> str:
+        """Give feedback on student's answer"""
+        context = f"Previous message: '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
         
-        return f"""
-        {context}
-        Create  2 questions for subtopic {subtopic_number}: "{subtopic_title}"
-        
-        Content: {subtopic_content}
-        
-        FORMAT:
-        Q1: [Simple MCQ with A,B,C options]
-        Q2: [True/False question]
-        
-        Keep questions short and focused on key concept only.
-        """
-    
-    @staticmethod
-    def get_subtopic_feedback_prompt(user_answers: str, correct_answers: str, passed: bool, subtopic_number: str, last_bot_message: str = None) -> str:
-        """Detailed pass/fail feedback for subtopic"""
-        context = f"Previous assistant message (for context): '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
-        
-        if passed:
+        if is_correct:
             return f"""
             {context}
-            Student passed subtopic {subtopic_number} quiz.
-            Student answers: {user_answers}
+            The student answered correctly about "{concept_name}".
+            Student's answer: "{user_answer}"
             
             REQUIREMENTS:
-            - Check each answer: say "Q1: Correct!" or "Q1: Wrong, correct answer is..."
-            - Give brief explanation for any wrong answers
-            - Celebrate success in 4-5 lines total
-            - End with "Ready to move to the next concept?"
+            - Give positive feedback (1 line)
+            - Briefly confirm what they got right
+            - Say "Great! Let's move to the next concept."
+            - Be encouraging and use 1 positive emoji
+            - Keep to 2 lines total
             """
         else:
             return f"""
             {context}
-            Student failed subtopic {subtopic_number} quiz.
-            Student answers: {user_answers}
+            The student's answer about "{concept_name}" needs improvement.
+            Student's answer: "{user_answer}"
             
             REQUIREMENTS:
-            - Check each answer: say "Q1: Correct!" or "Q1: Wrong, correct answer is..."
-            - Give clear explanations for wrong answers
-            - Be encouraging in 4-5 lines total
-            - End with "Want me to explain this concept again?"
+            - Be gentle and encouraging (1 line)
+            - Give a quick hint or correction
+            - Say "No worries! Let's continue to the next concept."
+            - Keep positive tone with encouraging emoji
+            - Keep to 2 lines total
             """
     
     @staticmethod
-    def get_final_assessment_prompt(overall_score: float, total_subtopics: int, passed_subtopics: int, last_bot_message: str = None) -> str:
-        """Final session completion summary"""
-        context = f"Previous assistant message (for context): '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
+    def get_user_question_response_prompt(user_question: str, content_context: str, last_bot_message: str = None) -> str:
+        """Respond to user's question during learning"""
+        context = f"Previous message: '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
         
         return f"""
         {context}
-        Student completed all {total_subtopics} subtopics with {passed_subtopics} passed.
-        Overall score: {overall_score:.1%}
+        Student asked: "{user_question}"
+        
+        Context content: {content_context}
         
         REQUIREMENTS:
-        - Celebrate their achievement in 4-5 lines
-        - Mention specific accomplishments (subtopics passed, score)
-        - Give encouraging final words about their learning
-        - End with celebration emoji
-        - Be warm and motivating
+        - Answer their question briefly and clearly (1-2 lines)
+        - Use the content context to give accurate info
+        - Be helpful and encouraging
+        - End with "Does that help? Ready to continue learning?"
+        - Keep response short and focused
         """
-
-    @staticmethod  
-    def get_retry_explanation_prompt(subtopic_title: str, subtopic_content: str, subtopic_number: str, last_bot_message: str = None) -> str:
-        """Simpler re-explanation for failed subtopic"""
-        context = f"Previous assistant message (for context): '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
+    
+    @staticmethod
+    def get_session_summary_prompt(total_concepts: int, concepts_learned: int, avg_score: float, learned_concepts: List[str], last_bot_message: str = None) -> str:
+        """Final session summary"""
+        context = f"Previous message: '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
+        
+        performance = "excellent" if avg_score >= 0.8 else "good" if avg_score >= 0.6 else "needs practice"
         
         return f"""
         {context}
-        Re-explain subtopic {subtopic_number}: "{subtopic_title}" more simply.
-        
-        Content: {subtopic_content[:200]}
+        Session complete! Student learned {concepts_learned} out of {total_concepts} concepts.
+        Average performance: {avg_score:.1%} ({performance})
+        Concepts covered: {', '.join(learned_concepts[:3])}{'...' if len(learned_concepts) > 3 else ''}
         
         REQUIREMENTS:
-        - Explain in 4-5 lines with simpler words
-        - Use easy, relatable examples
-        - Break down complex ideas step by step
-        - Be encouraging and supportive
-        - End with "Clearer now? Let's try the quiz again!"
+        - Celebrate their learning journey (1 line)
+        - Mention specific numbers (concepts learned, performance)
+        - Give encouraging words about their progress
+        - End with motivational message and celebration emoji
+        - Keep to 3-4 lines total
+        - Be warm and positive
+        """
+    
+    @staticmethod
+    def get_transition_to_next_concept_prompt(next_concept_title: str, current_progress: str, last_bot_message: str = None) -> str:
+        """Smooth transition between concepts"""
+        context = f"Previous message: '{(last_bot_message or '').strip()}'\n" if last_bot_message else ""
+        
+        return f"""
+        {context}
+        Moving to the next concept: "{next_concept_title}"
+        Current progress: {current_progress}
+        
+        REQUIREMENTS:
+        - Brief transition (1 line): "Now let's learn about [concept]"
+        - Keep it smooth and encouraging
+        - Don't explain yet - just introduce what's coming
+        - Use transition words like "Next" or "Now"
+        - Add one forward-looking emoji
         """
