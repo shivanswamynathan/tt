@@ -142,7 +142,7 @@ class OrchestratorAgent:
         except Exception:
             expected_keywords = [w for w in (title.split()[:3])]
         # Append assistant message with explanation
-        assistant_message = "\n".join(steps) + "\n\nCheck question: " + check_q
+        assistant_message = "\n".join(steps) + "\n\nQuestion: " + check_q
         turn = {
             "turn": session_doc.get("conversation_count", 0) + 1,
             "user_message": None,
